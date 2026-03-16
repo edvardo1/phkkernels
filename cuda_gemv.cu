@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 
 #include <cuda.h>
@@ -45,7 +46,7 @@ void
 wrapper(const float *A, const float *x, float *y, uint64_t M, uint64_t N) {
 	dim3 grid(M);
 	dim3 block(BLOCK_SIZE);
-	size_t shmem = (BLOCK_SIZE / WARP) * sizeof(float);
+	//size_t shmem = (BLOCK_SIZE / WARP) * sizeof(float);
 	gemv_fp32_kernel<<<grid, block, 0>>>(
 		A,
 		x,
@@ -67,16 +68,16 @@ cpu_gemv(float *A, float *x, float *y, uint64_t M, uint64_t N) {
 }
 
 int main() {
-	uint64_t M = 40000;
-	uint64_t N = 50000;
+	uint64_t M = finput_m;
+	uint64_t N = finput_n;
 	
 	size_t mi_size = M * N * sizeof(float);
 	size_t vi_size = N * sizeof(float);
 	size_t vo_size = M * sizeof(float);
 	
-	float *hmi = (float *)malloc(M * N * sizeof(float));
-	float *hvi = (float *)malloc(N * sizeof(float));
-	float *hvo = (float *)malloc(M * sizeof(float));
+	float *hmi = (float *)malloc(mi_size);
+	float *hvi = (float *)malloc(vi_size);
+	float *hvo = (float *)malloc(vo_size);
 	
 	float *dmi;
 	float *dvi;
@@ -91,16 +92,26 @@ int main() {
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
+	
 	cudaEventRecord(start);
 	
-	cudaMalloc((void **)&dmi, mi_size);
-	cudaMalloc((void **)&dvi, vi_size);
-	cudaMalloc((void **)&dvo, vo_size);
+	if (cudaMalloc((void **)&dmi, mi_size) != cudaSuccess) {
+		assert(0);
+	}
+	if (cudaMalloc((void **)&dvi, vi_size) != cudaSuccess) {
+		assert(0);
+	}
+	if (cudaMalloc((void **)&dvo, vo_size) != cudaSuccess) {
+		assert(0);
+	}
 	
 	cudaMemcpy(dmi, hmi, mi_size, cudaMemcpyHostToDevice);
 	cudaMemcpy(dvi, hvi, vi_size, cudaMemcpyHostToDevice);
 
 	wrapper(dmi, dvi, dvo, M, N);
+	
+	cudaMemcpy(hvo, dvo, vo_size, cudaMemcpyDeviceToHost);
+	cudaDeviceSynchronize();
 
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
@@ -111,26 +122,26 @@ int main() {
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
 	
-	cudaMemcpy(hvo, dvo, vo_size, cudaMemcpyDeviceToHost);
-	
-	//printf("hmi:");
-	//for (int i = 0; i < M * N; i++) {
-	//	if (i % M == 0) {
-	//		printf("\n");
-	//	}
-	//	printf("%2.2f ", hmi[i]);
-	//}
-	//printf("\n\nhvi: ");
-	//for (int i = 0; i < N; i++) {
-	//	printf("%2.2f ", hvi[i]);
-	//}
-	printf("\n\nhvo: ");
-	for (int i = 0; i < M && i < 20; i++) {
-		printf("%2.2f ", hvo[i]);
+	if (finput_print_result) {
+		printf("hmi:");
+		for (int i = 0; i < M * N; i++) {
+			if (i % M == 0) {
+				printf("\n");
+			}
+			printf("%2.2f ", hmi[i]);
+		}
+		printf("\n\nhvi: ");
+		for (int i = 0; i < N; i++) {
+			printf("%2.2f ", hvi[i]);
+		}
+		printf("\n\nhvo: ");
+		for (int i = 0; i < M && i < 20; i++) {
+			printf("%2.2f ", hvo[i]);
+		}
+		printf("\n");
 	}
-	printf("\n");
 
-	printf("\nGPU kernel time: %f ms\n", ms);
+	printf("cuda: %f ms\n", ms);
 	
 	cudaFree(dmi);
 	cudaFree(dvi);

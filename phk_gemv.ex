@@ -67,8 +67,8 @@ PolyHok.defmodule PGemv do
   end
 end
 
-m = 40000;
-n = 50000;
+m = finput_m;
+n = finput_n;
 
 #mat = PolyHok.new_nx_from_function_arg(m, n, type: {:f, 32}, fn x -> x end)
 mat = PolyHok.new_nx_from_function_arg(m, n, {:f, 32}, fn x -> x  end)
@@ -76,13 +76,18 @@ vec = PolyHok.new_nx_from_function_arg(1, n, {:f, 32}, fn x -> x end)
 
 prev = System.monotonic_time()
 
-ovec_ = PGemv.gemv(PolyHok.new_gnx(mat), PolyHok.new_gnx(vec), m, n)
+gmat = PolyHok.new_gnx(mat)
+gvec = PolyHok.new_gnx(vec) 
+
+ovec_ = PGemv.gemv(gmat, gvec, m, n)
 ovec = PolyHok.get_gnx(ovec_)
 
 next = System.monotonic_time()
 
-#IO.inspect mat
-#IO.inspect vec
-IO.inspect ovec
+if finput_print_result do
+  IO.inspect mat
+  IO.inspect vec
+  IO.inspect ovec
+end
 
-IO.puts "time taken:\t#{System.convert_time_unit(next-prev,:native,:millisecond)}ms"
+IO.puts "phk:\t#{System.convert_time_unit(next-prev,:native,:millisecond)}ms"

@@ -3,9 +3,9 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-constexpr int BLK  = 16;           // 16×16 tile  ⇒ 256 threads / CTA
-constexpr int WARP = 32;
-constexpr unsigned FULL = 0xffffffff;
+#define BLK 32
+#define WARP 32
+#define FULL ((unsigned int)0xffffffff)
 
 __global__ void gemm_tiled_fp32_kernel(const float* __restrict__ A,
                                        const float* __restrict__ B,
@@ -21,6 +21,22 @@ __global__ void gemm_tiled_fp32_kernel(const float* __restrict__ A,
     float sum = 0.f;
 
     for (int k0 = 0; k0 < K; k0 += BLK) {
+		//int a_col = k0 + threadIdx.x * 4;
+        //if (row < M && a_col + 3 < K)
+        //{
+        //    float4 v = *(const float4*)&A[(size_t)row * K + a_col];
+
+        //    As[threadIdx.y][threadIdx.x * 4 + 0] = v.x;
+        //    As[threadIdx.y][threadIdx.x * 4 + 1] = v.y;
+        //    As[threadIdx.y][threadIdx.x * 4 + 2] = v.z;
+        //    As[threadIdx.y][threadIdx.x * 4 + 3] = v.w;
+        //}
+        //else
+        //{
+        //    for (int i = 0; i < 4; i++)
+        //        As[threadIdx.y][threadIdx.x * 4 + i] = 0.f;
+        //}
+
         if (row < M && k0 + threadIdx.x < K)
             As[threadIdx.y][threadIdx.x] =
                 A[(size_t)row * K + (k0 + threadIdx.x)];
@@ -35,7 +51,7 @@ __global__ void gemm_tiled_fp32_kernel(const float* __restrict__ A,
 
         __syncthreads();
 
-#pragma unroll
+#pragma unroll 32
         for (int k = 0; k < BLK; ++k)
             sum += As[threadIdx.y][k] * Bs[k][threadIdx.x];
 
@@ -60,17 +76,17 @@ wrapper(const float *A, const float *B, float *C, uint64_t M, uint64_t N, uint64
 }
 
 int main() {
-	const uint64_t M = 10000;
-	const uint64_t N = 20000;
-	const uint64_t K = 30000;
+	const uint64_t M = finput_m;
+	const uint64_t N = finput_n;
+	const uint64_t K = finput_k;
 	
 	size_t a_size = M * K * sizeof(float);
 	size_t b_size = K * N * sizeof(float);
 	size_t c_size = M * N * sizeof(float);
 	
-	float *ha = (float *)malloc(a_size * sizeof(float));
-	float *hb = (float *)malloc(b_size * sizeof(float));
-	float *hc = (float *)malloc(c_size * sizeof(float));
+	float *ha = (float *)malloc(a_size);
+	float *hb = (float *)malloc(b_size);
+	float *hc = (float *)malloc(c_size);
 	
 	float *da;
 	float *db;
@@ -82,6 +98,7 @@ int main() {
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
+
 	cudaEventRecord(start);
 	
 	cudaMalloc((void **)&da, a_size);
@@ -92,6 +109,8 @@ int main() {
 	cudaMemcpy(db, hb, b_size, cudaMemcpyHostToDevice);
 
 	wrapper(da, db, dc, M, N, K);
+	
+	cudaMemcpy(hc, dc, c_size, cudaMemcpyDeviceToHost);
 
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
@@ -102,15 +121,14 @@ int main() {
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
 	
-	cudaMemcpy(hc, dc, c_size, cudaMemcpyDeviceToHost);
-	
-	printf("\n\nhc: ");
-	for (int i = 0; i < M * N && i < 20; i++) {
-		printf("%2.2f ", hc[i]);
+	if (finput_print_result) {
+		printf("\n\nhc: ");
+		for (int i = 0; i < M * N && i < 20; i++) {
+			printf("%2.2f ", hc[i]);
+		printf("\n");
 	}
-	printf("\n");
 
-	printf("\nGPU kernel time: %f ms\n", ms);
+	printf("cuda: %f ms\n", ms);
 	
 	cudaFree(da);
 	cudaFree(db);
